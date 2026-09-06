@@ -1,11 +1,11 @@
 import { Request, Response } from "express";
-import { User } from "@/models/user.model";
-import { Donor } from "@/models/donor.model";
-import { MedicalRecord } from "@/models/medicalRecord.model";
-import { ApiError } from "@/utils/ApiError";
-import { serializeStaffMember } from "@/utils/serializers";
-import { ELIGIBILITY, ROLES, STATUS } from "@/constants/roles";
-import { UpdateStaffRoleInput, UpdateStaffStatusInput } from "@/validators/admin.validator";
+import { User } from "../models/user.model";
+import { Donor } from "../models/donor.model";
+import { MedicalRecord } from "../models/medicalRecord.model";
+import { ApiError } from "../utils/ApiError";
+import { serializeStaffMember } from "../utils/serializers";
+import { ELIGIBILITY, ROLES, STATUS } from "../constants/roles";
+import { UpdateStaffRoleInput, UpdateStaffStatusInput } from "../validators/admin.validator";
 
 /** GET /admin/stats — dashboard overview counters. */
 export async function getStats(_req: Request, res: Response) {

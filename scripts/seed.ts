@@ -1,8 +1,8 @@
 /* eslint-disable no-console */
-import { connectDB, disconnectDB } from "@/config/db";
-import { env } from "@/config/env";
-import { User } from "@/models/user.model";
-import { ROLES, STATUS } from "@/constants/roles";
+import { connectDB, disconnectDB } from "../config/db";
+import { env } from "../config/env";
+import { User } from "../models/user.model";
+import { ROLES, STATUS } from "../constants/roles";
 
 async function seed() {
   await connectDB();

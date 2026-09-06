@@ -1,6 +1,6 @@
 import { Schema, model, Document, Model, Types } from "mongoose";
 import bcrypt from "bcryptjs";
-import { ALL_ROLES, ROLES, Role, STATUS, Status } from "@/constants/roles";
+import { ALL_ROLES, ROLES, Role, STATUS, Status } from "../constants/roles";
 
 export interface IUser extends Document {
   _id: Types.ObjectId;

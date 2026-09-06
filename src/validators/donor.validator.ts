@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BLOOD_GROUPS, ELIGIBILITY, GENDERS } from "@/constants/roles";
+import { BLOOD_GROUPS, ELIGIBILITY, GENDERS } from "../constants/roles";
 
 export const objectIdSchema = z
   .string()

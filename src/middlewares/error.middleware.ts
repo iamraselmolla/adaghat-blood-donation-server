@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
-import { ApiError } from "@/utils/ApiError";
-import { env } from "@/config/env";
+import { ApiError } from "../utils/ApiError";
+import { env } from "../config/env";
 
 interface ErrorBody {
   message: string;

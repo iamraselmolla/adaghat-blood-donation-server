@@ -1,11 +1,11 @@
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import { User } from "@/models/user.model";
-import { ApiError } from "@/utils/ApiError";
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from "@/utils/jwt";
-import { serializeAuthUser } from "@/utils/serializers";
-import { ROLES, STATUS } from "@/constants/roles";
-import { LoginInput, RefreshInput, RegisterStaffInput } from "@/validators/auth.validator";
+import { User } from "../models/user.model";
+import { ApiError } from "../utils/ApiError";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
+import { serializeAuthUser } from "../utils/serializers";
+import { ROLES, STATUS } from "../constants/roles";
+import { LoginInput, RefreshInput, RegisterStaffInput } from "../validators/auth.validator";
 
 /** POST /auth/login — accepts email OR phone as `identifier`. */
 export async function login(req: Request<unknown, unknown, LoginInput>, res: Response) {

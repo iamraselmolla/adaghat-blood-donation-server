@@ -1,4 +1,4 @@
-import { DONATION_INTERVAL_DAYS, ELIGIBILITY, EligibilityStatus, Gender } from "@/constants/roles";
+import { DONATION_INTERVAL_DAYS, ELIGIBILITY, EligibilityStatus, Gender } from "../constants/roles";
 
 export interface MedicalConditions {
   diabetes: boolean;

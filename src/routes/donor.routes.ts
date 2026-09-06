@@ -1,16 +1,16 @@
 import { Router } from "express";
-import * as donorController from "@/controllers/donor.controller";
-import { protect } from "@/middlewares/auth.middleware";
-import { authorize } from "@/middlewares/rbac.middleware";
-import { validate } from "@/middlewares/validate.middleware";
-import { ROLES } from "@/constants/roles";
+import * as donorController from "../controllers/donor.controller";
+import { protect } from "../middlewares/auth.middleware";
+import { authorize } from "../middlewares/rbac.middleware";
+import { validate } from "../middlewares/validate.middleware";
+import { ROLES } from "../constants/roles";
 import {
   createDonorSchema,
   idParamSchema,
   listDonorsQuerySchema,
   medicalRecordSchema,
   updateDonorSchema,
-} from "@/validators/donor.validator";
+} from "../validators/donor.validator";
 
 const router = Router();
 

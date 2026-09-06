@@ -1,14 +1,14 @@
 import { Router } from "express";
-import * as adminController from "@/controllers/admin.controller";
-import { protect } from "@/middlewares/auth.middleware";
-import { authorize } from "@/middlewares/rbac.middleware";
-import { validate } from "@/middlewares/validate.middleware";
-import { ROLES } from "@/constants/roles";
+import * as adminController from "../controllers/admin.controller";
+import { protect } from "../middlewares/auth.middleware";
+import { authorize } from "../middlewares/rbac.middleware";
+import { validate } from "../middlewares/validate.middleware";
+import { ROLES } from "../constants/roles";
 import {
   staffIdParamSchema,
   updateStaffRoleSchema,
   updateStaffStatusSchema,
-} from "@/validators/admin.validator";
+} from "../validators/admin.validator";
 
 const router = Router();
 

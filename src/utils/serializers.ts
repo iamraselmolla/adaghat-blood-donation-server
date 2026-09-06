@@ -1,6 +1,6 @@
-import { IUser } from "@/models/user.model";
-import { IDonor } from "@/models/donor.model";
-import { IMedicalRecord } from "@/models/medicalRecord.model";
+import { IUser } from "../models/user.model";
+import { IDonor } from "../models/donor.model";
+import { IMedicalRecord } from "../models/medicalRecord.model";
 
 /** Matches frontend `AuthUser` (types/index.ts) — note: uses `id`, not `_id`. */
 export function serializeAuthUser(user: IUser) {

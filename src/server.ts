@@ -1,5 +1,5 @@
-import { createApp } from "@/app";
-import { connectDB } from "@/config/db";
+import { createApp } from "./app";
+import { connectDB } from "./config/db";
 
 const app = createApp();
 

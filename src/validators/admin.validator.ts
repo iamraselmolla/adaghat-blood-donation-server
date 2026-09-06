@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ROLES, STATUS } from "@/constants/roles";
-import { objectIdSchema } from "@/validators/donor.validator";
+import { ROLES, STATUS } from "../constants/roles";
+import { objectIdSchema } from "../validators/donor.validator";
 
 export const staffIdParamSchema = z.object({ id: objectIdSchema });
 

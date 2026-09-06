@@ -1,6 +1,6 @@
 import { Schema, model, Document, Types } from "mongoose";
 import bcrypt from "bcryptjs";
-import { BLOOD_GROUPS, BloodGroup, GENDERS, Gender } from "@/constants/roles";
+import { BLOOD_GROUPS, BloodGroup, GENDERS, Gender } from "../constants/roles";
 
 export interface IAddress {
   division: string;

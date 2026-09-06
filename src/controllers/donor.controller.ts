@@ -1,17 +1,17 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
-import { Donor } from "@/models/donor.model";
-import { MedicalRecord } from "@/models/medicalRecord.model";
-import { ApiError } from "@/utils/ApiError";
-import { serializeDonor, serializeMedicalRecord } from "@/utils/serializers";
-import { parsePagination, buildPaginatedResponse } from "@/utils/pagination";
-import { computeEligibility } from "@/utils/eligibility";
+import { Donor } from "../models/donor.model";
+import { MedicalRecord } from "../models/medicalRecord.model";
+import { ApiError } from "../utils/ApiError";
+import { serializeDonor, serializeMedicalRecord } from "../utils/serializers";
+import { parsePagination, buildPaginatedResponse } from "../utils/pagination";
+import { computeEligibility } from "../utils/eligibility";
 import {
   CreateDonorInput,
   ListDonorsQuery,
   MedicalRecordInput,
   UpdateDonorInput,
-} from "@/validators/donor.validator";
+} from "../validators/donor.validator";
 
 /** GET /donors — paginated, filterable by blood group, location, availability, and eligibility. */
 export async function listDonors(req: Request<unknown, unknown, unknown, ListDonorsQuery>, res: Response) {

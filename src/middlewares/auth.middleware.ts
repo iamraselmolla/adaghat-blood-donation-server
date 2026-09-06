@@ -1,9 +1,9 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import { ApiError } from "@/utils/ApiError";
-import { verifyAccessToken } from "@/utils/jwt";
-import { User } from "@/models/user.model";
-import { STATUS } from "@/constants/roles";
+import { ApiError } from "../utils/ApiError";
+import { verifyAccessToken } from "../utils/jwt";
+import { User } from "../models/user.model";
+import { STATUS } from "../constants/roles";
 
 function extractBearerToken(req: Request): string | null {
   const header = req.headers.authorization;

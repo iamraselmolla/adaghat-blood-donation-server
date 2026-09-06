@@ -8,10 +8,10 @@ import hpp from "hpp";
 import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
 
-import { env } from "@/config/env";
-import routes from "@/routes";
-import { notFound } from "@/middlewares/notFound.middleware";
-import { errorHandler } from "@/middlewares/error.middleware";
+import { env } from "./config/env";
+import routes from "./routes";
+import { notFound } from "./middlewares/notFound.middleware";
+import { errorHandler } from "./middlewares/error.middleware";
 
 export function createApp(): Application {
   const app = express();

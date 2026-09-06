@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from "express";
-import { ApiError } from "@/utils/ApiError";
-import { Role } from "@/constants/roles";
+import { ApiError } from "../utils/ApiError";
+import { Role } from "../constants/roles";
 
 /**
  * Restricts a route to the given roles. Must run after `protect`.

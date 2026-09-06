@@ -1,9 +1,9 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import * as authController from "@/controllers/auth.controller";
-import { validate } from "@/middlewares/validate.middleware";
-import { protect, optionalAuth } from "@/middlewares/auth.middleware";
-import { loginSchema, refreshSchema, registerStaffSchema } from "@/validators/auth.validator";
+import * as authController from "../controllers/auth.controller";
+import { validate } from "../middlewares/validate.middleware";
+import { protect, optionalAuth } from "../middlewares/auth.middleware";
+import { loginSchema, refreshSchema, registerStaffSchema } from "../validators/auth.validator";
 
 const router = Router();
 

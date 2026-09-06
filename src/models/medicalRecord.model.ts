@@ -1,5 +1,5 @@
 import { Schema, model, Document, Types } from "mongoose";
-import { ELIGIBILITY, EligibilityStatus } from "@/constants/roles";
+import { ELIGIBILITY, EligibilityStatus } from "../constants/roles";
 
 export interface IMedicalConditions {
   diabetes: boolean;
