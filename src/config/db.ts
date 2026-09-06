@@ -17,9 +17,9 @@ export async function connectDB(): Promise<void> {
 
     isConnected = mongoose.connection.readyState === 1;
 
-    console.log(
-      `[db] MongoDB connected -> ${mongoose.connection.name}`
-    );
+   console.log("[DB] Connected successfully");
+  console.log("[DB] Database:", mongoose.connection.name);
+  console.log("[DB] Host:", mongoose.connection.host);
   } catch (err) {
     isConnected = false;
 
