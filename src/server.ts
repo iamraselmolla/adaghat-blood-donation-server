@@ -1,48 +1,19 @@
 import { createApp } from "@/app";
-import { connectDB, disconnectDB } from "@/config/db";
-import { env } from "@/config/env";
+import { connectDB } from "@/config/db";
 
-async function main() {
-  await connectDB();
+const app = createApp();
 
-  const app = createApp();
+export default async function handler(req: any, res: any) {
+  try {
+    await connectDB();
 
-  const server = app.listen(env.port, () => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[server] LifeDrop API listening on port ${env.port} (${env.nodeEnv})`
-    );
+    return app(req, res);
+  } catch (error) {
+    console.error("[server] Request handler error:", error);
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `[server] Base URL: http://localhost:${env.port}${env.apiPrefix}`
-    );
-  });
-
-  const shutdown = async (signal: string) => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[server] Received ${signal}, shutting down gracefully...`
-    );
-
-    server.close(async () => {
-      await disconnectDB();
-      process.exit(0);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
     });
-  };
-
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-  process.on("unhandledRejection", (reason) => {
-    // eslint-disable-next-line no-console
-    console.error("[server] Unhandled promise rejection:", reason);
-  });
+  }
 }
-
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("[server] Fatal startup error:", err);
-
-  process.exit(1);
-});

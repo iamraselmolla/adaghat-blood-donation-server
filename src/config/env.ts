@@ -20,10 +20,6 @@ export const env = {
   port: parseInt(process.env.PORT ?? "5000", 10),
   apiPrefix: process.env.API_PREFIX ?? "/api/v1",
 
-  clientOrigins: (process.env.CLIENT_ORIGINS ?? "http://localhost:3000")
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean),
 
   mongodbUri: required("MONGODB_URI", "mongodb://127.0.0.1:27017/lifedrop"),
 

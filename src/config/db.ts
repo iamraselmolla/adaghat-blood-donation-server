@@ -3,31 +3,41 @@ import { env } from "@/config/env";
 
 mongoose.set("strictQuery", true);
 
+let isConnected = false;
+
 export async function connectDB(): Promise<void> {
+  if (isConnected && mongoose.connection.readyState === 1) {
+    return;
+  }
+
   try {
-    mongoose.connection.on("connected", () => {
-      // eslint-disable-next-line no-console
-      console.log(`[db] MongoDB connected -> ${mongoose.connection.name}`);
-    });
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(env.mongodbUri);
+    }
 
-    mongoose.connection.on("error", (err) => {
-      // eslint-disable-next-line no-console
-      console.error("[db] MongoDB connection error:", err.message);
-    });
+    isConnected = mongoose.connection.readyState === 1;
 
-    mongoose.connection.on("disconnected", () => {
-      // eslint-disable-next-line no-console
-      console.warn("[db] MongoDB disconnected");
-    });
-
-    await mongoose.connect(env.mongodbUri);
+    console.log(
+      `[db] MongoDB connected -> ${mongoose.connection.name}`
+    );
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("[db] Failed to connect to MongoDB:", err);
-    process.exit(1);
+    isConnected = false;
+
+    console.error(
+      "[db] Failed to connect to MongoDB:",
+      err instanceof Error ? err.message : err
+    );
+
+    // IMPORTANT:
+    // Do NOT use process.exit() inside Vercel serverless functions.
+    throw err;
   }
 }
 
 export async function disconnectDB(): Promise<void> {
-  await mongoose.disconnect();
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
+
+  isConnected = false;
 }
