@@ -40,6 +40,16 @@ const addressSchema = new Schema<IAddress>(
   { _id: false }
 );
 
+// Real sub-schema for GeoJSON Point — keeps `type`/`coordinates` unambiguous
+// so `default` can safely apply to the whole `location` path, not a sub-path.
+const pointSchema = new Schema(
+  {
+    type: { type: String, enum: ["Point"] },
+    coordinates: { type: [Number] },
+  },
+  { _id: false }
+);
+
 const donorSchema = new Schema<IDonor>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User" },
@@ -52,15 +62,8 @@ const donorSchema = new Schema<IDonor>(
     dob: { type: Date, required: true },
     address: { type: addressSchema, required: true },
     location: {
-      type: {
-        type: String,
-        enum: ["Point"],
-      },
-      coordinates: {
-        type: [Number],
-      },
-      _id: false,
-      default: undefined, // prevents Mongoose from auto-materializing this subdocument as {}
+      type: pointSchema,
+      default: undefined, // prevents Mongoose auto-materializing this subdocument as {}
     },
     lastDonationDate: { type: Date, default: null },
     availability: { type: Boolean, default: true },
@@ -74,8 +77,8 @@ donorSchema.index({ bloodGroup: 1 });
 donorSchema.index({ name: "text", phone: "text", email: "text" });
 donorSchema.index({ location: "2dsphere" });
 
-// Self-heals any partially-built location object (e.g. { type: "Point" } with no
-// coordinates) before it can reach the 2dsphere index and throw.
+// Self-heals any partially-built location object before it can reach the
+// 2dsphere index and throw.
 donorSchema.pre("validate", function (next) {
   if (this.location && (!this.location.coordinates || this.location.coordinates.length !== 2)) {
     this.location = undefined;
@@ -99,7 +102,6 @@ donorSchema.methods.comparePassword = function (candidate: string): Promise<bool
   return bcrypt.compare(candidate, this.passwordHash);
 };
 
-// Virtual, populate-able one-to-one link to the donor's medical record.
 donorSchema.virtual("medicalRecord", {
   ref: "MedicalRecord",
   localField: "_id",
