@@ -52,8 +52,15 @@ const donorSchema = new Schema<IDonor>(
     dob: { type: Date, required: true },
     address: { type: addressSchema, required: true },
     location: {
-      type: { type: String, enum: ["Point"], default: "Point" },
-      coordinates: { type: [Number], default: undefined },
+      type: {
+        type: String,
+        enum: ["Point"],
+      },
+      coordinates: {
+        type: [Number],
+      },
+      _id: false,
+      default: undefined, // prevents Mongoose from auto-materializing this subdocument as {}
     },
     lastDonationDate: { type: Date, default: null },
     availability: { type: Boolean, default: true },
@@ -66,6 +73,15 @@ donorSchema.index({ "address.division": 1, "address.district": 1, "address.upazi
 donorSchema.index({ bloodGroup: 1 });
 donorSchema.index({ name: "text", phone: "text", email: "text" });
 donorSchema.index({ location: "2dsphere" });
+
+// Self-heals any partially-built location object (e.g. { type: "Point" } with no
+// coordinates) before it can reach the 2dsphere index and throw.
+donorSchema.pre("validate", function (next) {
+  if (this.location && (!this.location.coordinates || this.location.coordinates.length !== 2)) {
+    this.location = undefined;
+  }
+  next();
+});
 
 donorSchema.pre("save", async function (next) {
   if (this.isModified("passwordHash") && this.passwordHash && !this.passwordHash.startsWith("$2")) {
