@@ -1,7 +1,9 @@
 import { Router } from "express";
-import authRoutes from "../routes/auth.routes";
-import donorRoutes from "../routes/donor.routes";
-import adminRoutes from "../routes/admin.routes";
+
+import authRoutes from "./auth.routes";
+import donorRoutes from "./donor.routes";
+import donationRoutes from "./donation.routes";
+import adminRoutes from "./admin.routes";
 
 const router = Router();
 
@@ -11,6 +13,7 @@ router.get("/health", (_req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/donors", donorRoutes);
+router.use("/donations", donationRoutes);
 router.use("/admin", adminRoutes);
 
 export default router;

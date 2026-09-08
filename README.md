@@ -1,145 +1,161 @@
-# LifeDrop — Blood Donation Admin API (Backend)
+# LifeDrop Backend
 
-Production-ready RESTful API for the LifeDrop Blood Donation Management platform.
-Node.js + Express + TypeScript + MongoDB (Mongoose), with JWT auth (access + refresh)
-and full Role-Based Access Control. Built to match the shipped Next.js frontend's
-service layer (`lib/services/*.ts`, `types/index.ts`) exactly.
+Node.js + Express + TypeScript + MongoDB REST API for the LifeDrop blood donation admin frontend (Next.js).
+
+All imports in this project use **relative paths** (`../../foo`) — no `@` path aliases anywhere, on purpose, since alias resolution was causing build failures on Vercel.
 
 ## Stack
 
-- Node.js 18+, Express 4, TypeScript 5
-- MongoDB + Mongoose 8
-- JWT (`jsonwebtoken`) — short-lived access token + longer-lived refresh token
-- `bcryptjs` password hashing
-- `zod` request validation
-- `helmet`, `cors`, `express-rate-limit`, `express-mongo-sanitize`, `hpp` for security hardening
+- Express 4 + TypeScript
+- MongoDB via Mongoose 8
+- JWT auth (access + refresh) with `tokenVersion`-based session invalidation
+- Zod request validation
+- Deployable as a traditional long-running server **or** as Vercel serverless functions
 
-## Getting Started
+## Getting started (local)
 
 ```bash
+cd backend
+cp .env.example .env      # then fill in real secrets / a real MONGODB_URI
 npm install
-cp .env.example .env      # then edit values, especially JWT secrets and MONGODB_URI
-npm run dev                # ts-node + nodemon, http://localhost:5000/api/v1
-
-# bootstrap the first Super Admin account (reads SEED_SUPER_ADMIN_* from .env)
-npm run seed
-
-# production
-npm run build
-npm start
+npm run seed               # creates a SUPER_ADMIN + sample staff/donors/donation
+npm run dev                 # http://localhost:5000/api/v1
 ```
 
-The frontend's `.env.local` should point `NEXT_PUBLIC_API_URL` at
-`http://localhost:5000/api/v1` (or wherever this API is deployed).
+Seeded SUPER_ADMIN login is whatever you set in `.env` as `SEED_SUPER_ADMIN_IDENTIFIER` /
+`SEED_SUPER_ADMIN_PASSWORD` (defaults: `admin@lifedrop.app` / `ChangeMe123!`).
 
-## Folder Structure
+Point the frontend's `NEXT_PUBLIC_API_URL` at `http://localhost:5000/api/v1`.
 
-```
-src/
-  config/        env.ts (validated env vars), db.ts (Mongo connection)
-  constants/     roles.ts (Role/Status/BloodGroup enums, eligibility rules)
-  models/        user.model.ts, donor.model.ts, medicalRecord.model.ts
-  middlewares/   auth (JWT), rbac (role gate), validate (zod), error, notFound
-  utils/         ApiError, jwt, eligibility (120-day rule engine), pagination,
-                 serializers (DTOs matching the frontend's types/index.ts exactly)
-  validators/    zod schemas per resource
-  controllers/   auth, donor, admin
-  routes/        auth, donor, admin, index
-  app.ts         Express app wiring (security middleware, routes, error handler)
-  server.ts      boots Mongo connection + HTTP server, graceful shutdown
-scripts/
-  seed.ts        creates the first SUPER_ADMIN account
-```
+## Deploying to Vercel
 
-## Authentication
+This repo includes `vercel.json` + `api/index.ts`, which rewrite every request to a single
+serverless function that wraps the same Express app used locally.
 
-- `identifier` is either an email or a phone number — one unified field, matching
-  the frontend's single login input.
-- **Access token**: short-lived (default 15m), sent as `Authorization: Bearer <token>`.
-- **Refresh token**: longer-lived (default 7d), exchanged via `POST /auth/refresh`.
-  Refresh tokens are **not** rotated on use (only invalidated via `tokenVersion`,
-  bumped on logout or when a Super Admin disables an account) — this matches the
-  frontend's axios interceptor, which only ever reads back a new `accessToken`.
+1. Push this `backend/` folder as its own Vercel project (root directory = `backend`).
+2. Set the environment variables from `.env.example` in the Vercel project settings
+   (`MONGODB_URI`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CORS_ORIGINS`, etc).
+3. Deploy. No build step is required beyond Vercel's own `@vercel/node` TypeScript compilation —
+   there's nothing to configure for path aliases because none are used.
+4. Use a MongoDB Atlas (or similar hosted) connection string — Vercel functions can't reach a
+   `localhost` database. The connection is cached across invocations (`src/config/db.ts`) to avoid
+   exhausting your connection pool.
 
-### `POST /auth/register-staff` has two behaviors
+For local dev or any traditional Node host (Render, Railway, an EC2 box, etc.), `npm run build && npm start`
+still works via `src/server.ts` — that entrypoint is untouched by the Vercel setup.
 
-This mirrors how the frontend actually calls it:
+## ⚠️ Donation cooldown mismatch to resolve
 
-- **Unauthenticated** (public "Sign Up" tab on the login page): always creates a
-  `MEMBER` (read-only) account, regardless of what `role` is sent.
-- **Authenticated as `SUPER_ADMIN`** (Role Management → "Add Admin or Member"):
-  may create `ADMIN` or `MEMBER` accounts. Creating another `SUPER_ADMIN` is blocked.
-- Any other caller receives `403`.
+The frontend's `lib/utils.ts` defines the donation cooldown as **90 days** (`MIN_DONATION_GAP_DAYS = 90`,
+used to hide ineligible donors in the picker and disable the submit button). This backend defaults to
+**120 days** (`MIN_DONATION_GAP_DAYS` in `.env`), matching the rule agreed on earlier for the donor
+eligibility engine.
 
-## Role-Based Access Control
+Because the frontend hint and the backend's authoritative check disagree, a donor between day 91–120
+will look eligible in the UI (shown in the donor picker, submit button enabled) but the backend will
+reject the donation with a 400 error. Pick one number and update the other side:
 
-| Action                                | SUPER_ADMIN | ADMIN | MEMBER |
-|----------------------------------------|:-----------:|:-----:|:------:|
-| View dashboard stats                   | ✅          | ✅    | ✅     |
-| View donor list / detail               | ✅          | ✅    | ✅     |
-| Create / edit donor                    | ✅          | ✅    | ❌     |
-| Delete donor                           | ✅          | ❌    | ❌     |
-| Create / edit medical record           | ✅          | ✅    | ❌     |
-| Manage staff (roles/status)            | ✅          | ❌    | ❌     |
+- To make the backend match the frontend: set `MIN_DONATION_GAP_DAYS=90` in `.env`.
+- To make the frontend match the backend: change `MIN_DONATION_GAP_DAYS` in `lib/utils.ts` to `120`.
 
-Enforced server-side in `middlewares/rbac.middleware.ts` on every route — the
-frontend's `usePermissions()` hook is a UX convenience only, never the source of truth.
+## Auth contract notes
 
-## Eligibility Auto-Calculation
+- `POST /api/v1/auth/refresh` returns **only** `{ accessToken }` — never a rotated refresh token.
+  This matches the frontend's axios interceptor (`lib/axios.ts`), which reads `data.accessToken`
+  exclusively. Returning anything else here will silently break refresh on the client.
+- `POST /api/v1/auth/register-staff` is dual-purpose:
+  - No/invalid `Authorization` header → public self-registration, role is forced to `MEMBER`
+    regardless of what's in the request body.
+  - Authenticated as `SUPER_ADMIN` → creates a staff account with the requested role (`ADMIN` or
+    `MEMBER`; `SUPER_ADMIN` cannot be created through this endpoint).
+  - Authenticated as `ADMIN` or `MEMBER` → `403 Forbidden`.
+- `logout` and disabling a staff account (`PUT /admin/staff/:id/status` with `DISABLED`) both bump
+  `tokenVersion`, which immediately invalidates every access/refresh token already issued to that user.
 
-`utils/eligibility.ts` recomputes `eligibilityStatus` every time a medical record
-is created or updated (`PUT /donors/:id/medical-record`):
+## DTO shape notes
 
-1. HIV or Hepatitis flagged → `INELIGIBLE` (hard disqualifier)
-2. Weight under 45kg → `INELIGIBLE`
-3. Hemoglobin under 13.0 g/dL (male) / 12.5 g/dL (female/other) → `INELIGIBLE`
-4. Last donation within the last 120 days → `INELIGIBLE` (donation interval rule)
-5. Diabetes, heart disease, recent surgery, or recent tattoo (last 6 months) → `PENDING_REVIEW`
-6. Otherwise → `ELIGIBLE`
+The same underlying `User` document is serialized two different ways depending on the endpoint,
+matching the frontend's types exactly:
 
-## API Reference
+- `AuthUser` (from `/auth/login`, `/auth/me`, `/auth/register-staff`) uses `id`.
+- `StaffMember` (from `/admin/staff`) uses `_id`.
 
-Base URL: `{API_PREFIX}` (default `/api/v1`)
+See `src/utils/serializers.ts`.
 
-| Method | Path                              | Auth              | Description                                  |
-|--------|------------------------------------|-------------------|-----------------------------------------------|
-| GET    | `/health`                          | Public            | Liveness check                                |
-| POST   | `/auth/login`                      | Public            | Login with email/phone + password             |
-| POST   | `/auth/register-staff`             | Public / SUPER_ADMIN | See dual-behavior note above                |
-| POST   | `/auth/refresh`                    | Public (needs refresh token) | Exchange refresh token for new access token |
-| GET    | `/auth/me`                         | Any authenticated | Current user profile                          |
-| POST   | `/auth/logout`                     | Any authenticated | Invalidates outstanding refresh tokens        |
-| GET    | `/donors`                          | Any staff role    | Paginated + filtered donor list               |
-| GET    | `/donors/:id`                      | Any staff role    | Donor detail (with medical record)            |
-| POST   | `/donors`                          | ADMIN, SUPER_ADMIN | Create donor                                  |
-| PUT    | `/donors/:id`                      | ADMIN, SUPER_ADMIN | Update donor                                  |
-| DELETE | `/donors/:id`                      | SUPER_ADMIN        | Delete donor + medical record                 |
-| PUT    | `/donors/:id/medical-record`       | ADMIN, SUPER_ADMIN | Upsert medical record, recompute eligibility  |
-| GET    | `/admin/stats`                     | Any staff role    | Dashboard counters                            |
-| GET    | `/admin/staff`                     | SUPER_ADMIN        | List all staff accounts                       |
-| PUT    | `/admin/staff/:id/role`            | SUPER_ADMIN        | Change an ADMIN/MEMBER's role                 |
-| PUT    | `/admin/staff/:id/status`          | SUPER_ADMIN        | Activate/disable an ADMIN/MEMBER              |
+## Donor create/update contract
 
-`GET /donors` query params: `search`, `bloodGroup`, `division`, `district`,
-`upazila`, `availability` (`ALL`/`AVAILABLE`/`UNAVAILABLE`), `eligibility`
-(`ALL`/`ELIGIBLE`/`INELIGIBLE`/`PENDING_REVIEW`), `page`, `limit`.
+The frontend submits a donor in **two separate calls** (see `donor-form-modal.tsx`):
 
-### Error shape
+1. `POST /donors` or `PUT /donors/:id` — personal info only (name, phone, email, bloodGroup, gender,
+   dob, address, lastDonationDate, availability). An optional `password` field creates a linked donor
+   login account (`User` with role `MEMBER`) if an `email` is also present.
+2. `PUT /donors/:id/medical-record` — the nested medical record (`weightKg`, `bloodPressure`,
+   `hemoglobin`, `conditions`, `currentMedications`). The backend recomputes `eligibilityStatus` from
+   these values every time this endpoint is called (see `src/utils/eligibility.ts`).
 
-Every error response matches the frontend's `ApiError` type exactly:
+## Donation log (new)
 
-```json
-{ "message": "Validation failed", "statusCode": 400, "errors": { "identifier": "Required" } }
-```
+- `POST /donations` (ADMIN/SUPER_ADMIN only) records a donation. Before saving, it runs the full
+  eligibility check (`canDonateNow` in `src/utils/eligibility.ts`): the date-based cooldown **and**
+  the donor's current medical `eligibilityStatus` must both pass, or the request is rejected with a
+  400 and a reason. On success, the donor's `lastDonationDate` is advanced if the new donation is more
+  recent than what's stored.
+- The donor's name and blood group are **snapshotted** onto the `Donation` document at creation time
+  (`donorName`, `donorBloodGroup`), rather than joined live on every read. This keeps list queries fast
+  and keeps historical records accurate even if the donor's details are edited later.
+- `GET /donations` — paginated, filterable by `donorId` and free-text `search` (matches donor name,
+  recipient name, or location). Available to any authenticated role.
+- `GET /donors/:id/donations` — full donation history for one donor, newest first.
 
-## Notes / Next Steps
+## Eligibility engine
 
-- `emergencyRequests` in `GET /admin/stats` currently returns `0` — the
-  frontend's `app/(dashboard)/requests` page is scaffolded but not wired to
-  any API yet (per its own README), so there's no backing model to count.
-  Wire up an `EmergencyRequest` model + routes here when that feature is built.
-- Donor `address.coordinates` is stored internally as a GeoJSON `Point` with a
-  `2dsphere` index (ready for "nearest available donor" geo-queries) and is
-  exposed to the frontend as the simpler `{ lat, lng }` shape it expects.
-- Consider adding an email/SMS OTP verification step before enabling public
-  self sign-up in production.
+`src/utils/eligibility.ts` combines two independent checks (both env-configurable):
+
+1. **Medical eligibility** (`computeEligibilityStatus`) — recomputed whenever a medical record is
+   saved. Hard blocks (`INELIGIBLE`): HIV, Hepatitis, heart disease, weight below `MIN_WEIGHT_KG`,
+   hemoglobin below the gender-specific threshold, or age outside `MIN_DONOR_AGE`–`MAX_DONOR_AGE`.
+   Temporary deferrals (`PENDING_REVIEW`): recent surgery, recent tattoo, or diabetes. Otherwise
+   `ELIGIBLE`.
+2. **Date-based cooldown** (`isDateEligible` / `daysUntilEligible`) — days since `lastDonationDate`
+   vs. `MIN_DONATION_GAP_DAYS`.
+
+`canDonateNow()` combines both and is the single source of truth enforced by `POST /donations`.
+
+## Filtered donor listing
+
+`GET /donors` uses an aggregation pipeline (`src/controllers/donor.controller.ts`) rather than a plain
+`find()`, because the `eligibility=ELIGIBLE|INELIGIBLE` filter depends on a value (the date-based
+cooldown) that isn't stored on the document — it has to be computed relative to "now" inside the
+pipeline (`$addFields` + `$subtract`/`$divide` against `$$NOW`), then combined with the stored
+`medicalRecord.eligibilityStatus` before pagination (`$facet`).
+
+## Endpoints
+
+| Method | Path                          | Access                  |
+|--------|-------------------------------|--------------------------|
+| POST   | /auth/login                   | Public                  |
+| POST   | /auth/register-staff          | Public / SUPER_ADMIN    |
+| GET    | /auth/me                      | Authenticated            |
+| POST   | /auth/logout                  | Authenticated            |
+| POST   | /auth/refresh                 | Public (valid refresh token) |
+| GET    | /donors                       | Authenticated            |
+| GET    | /donors/:id                   | Authenticated            |
+| GET    | /donors/:id/donations         | Authenticated            |
+| POST   | /donors                       | ADMIN, SUPER_ADMIN       |
+| PUT    | /donors/:id                   | ADMIN, SUPER_ADMIN       |
+| DELETE | /donors/:id                   | SUPER_ADMIN              |
+| PUT    | /donors/:id/medical-record    | ADMIN, SUPER_ADMIN       |
+| GET    | /donations                    | Authenticated            |
+| POST   | /donations                    | ADMIN, SUPER_ADMIN       |
+| GET    | /admin/stats                  | Authenticated            |
+| GET    | /admin/staff                  | SUPER_ADMIN              |
+| PUT    | /admin/staff/:id/role         | SUPER_ADMIN              |
+| PUT    | /admin/staff/:id/status       | SUPER_ADMIN              |
+
+All paths are relative to `API_PREFIX` (default `/api/v1`).
+
+## Known gap: emergency requests
+
+`GET /admin/stats` currently returns a hardcoded `emergencyRequests: 0`. The frontend's `/requests`
+page is still a placeholder ("wire this up next alongside the notifications service" — its own words),
+so there's no `Request` model yet. Build that model + endpoints together when that feature is ready.

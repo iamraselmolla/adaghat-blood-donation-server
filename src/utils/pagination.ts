@@ -1,20 +1,16 @@
-export interface PageParams {
+export interface PaginationParams {
   page: number;
   limit: number;
   skip: number;
 }
 
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+export function parsePagination(query: Record<string, unknown>): PaginationParams {
+  const rawPage = Number(query.page);
+  const rawLimit = Number(query.limit);
 
-export function parsePagination(query: Record<string, unknown>): PageParams {
-  let page = parseInt(String(query.page ?? DEFAULT_PAGE), 10);
-  let limit = parseInt(String(query.limit ?? DEFAULT_LIMIT), 10);
-
-  if (!Number.isFinite(page) || page < 1) page = DEFAULT_PAGE;
-  if (!Number.isFinite(limit) || limit < 1) limit = DEFAULT_LIMIT;
-  if (limit > MAX_LIMIT) limit = MAX_LIMIT;
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+  const limitCandidate = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : 10;
+  const limit = Math.min(limitCandidate, 100);
 
   return { page, limit, skip: (page - 1) * limit };
 }

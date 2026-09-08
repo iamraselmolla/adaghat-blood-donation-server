@@ -1,15 +1,18 @@
-import { Role } from "../constants/roles";
+import { Role } from "../../models/User.model";
 
-export interface RequestUser {
+export interface AuthenticatedUser {
   id: string;
   role: Role;
+  tokenVersion: number;
+  name: string;
+  identifier: string;
+  status: "ACTIVE" | "DISABLED";
 }
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      user?: RequestUser;
+      user?: AuthenticatedUser;
     }
   }
 }

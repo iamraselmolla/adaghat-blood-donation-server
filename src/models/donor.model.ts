@@ -1,12 +1,36 @@
 import { Schema, model, Document, Types } from "mongoose";
-import bcrypt from "bcryptjs";
-import { BLOOD_GROUPS, BloodGroup, GENDERS, Gender } from "../constants/roles";
+
+import { BloodGroup } from "./shared.types";
+
+export type Gender = "MALE" | "FEMALE" | "OTHER";
+export type EligibilityStatus = "ELIGIBLE" | "INELIGIBLE" | "PENDING_REVIEW";
 
 export interface IAddress {
   division: string;
   district: string;
   upazila: string;
   addressLine?: string;
+  coordinates?: { lat: number; lng: number };
+}
+
+export interface IMedicalConditions {
+  diabetes: boolean;
+  hepatitis: boolean;
+  hiv: boolean;
+  heartDisease: boolean;
+  recentSurgery: boolean;
+  recentTattoo: boolean;
+}
+
+export interface IMedicalRecord {
+  weightKg: number;
+  bloodPressure: string;
+  hemoglobin: number;
+  conditions: IMedicalConditions;
+  currentMedications?: string;
+  eligibilityStatus: EligibilityStatus;
+  updatedBy?: Types.ObjectId;
+  updatedAt?: Date;
 }
 
 export interface IDonor extends Document {
@@ -15,37 +39,58 @@ export interface IDonor extends Document {
   name: string;
   phone: string;
   email?: string;
-  passwordHash?: string;
   bloodGroup: BloodGroup;
   gender: Gender;
   dob: Date;
   address: IAddress;
-  location?: { type: "Point"; coordinates: [number, number] }; // [lng, lat]
   lastDonationDate?: Date | null;
   availability: boolean;
+  medicalRecord?: IMedicalRecord;
   avatarUrl?: string;
   createdAt: Date;
   updatedAt: Date;
-  hasPassword(): boolean;
-  comparePassword(candidate: string): Promise<boolean>;
 }
 
 const addressSchema = new Schema<IAddress>(
   {
-    division: { type: String, required: true, trim: true },
-    district: { type: String, required: true, trim: true },
-    upazila: { type: String, required: true, trim: true },
-    addressLine: { type: String, trim: true },
+    division: { type: String, required: true },
+    district: { type: String, required: true },
+    upazila: { type: String, required: true },
+    addressLine: { type: String },
+    coordinates: {
+      lat: { type: Number },
+      lng: { type: Number },
+    },
   },
   { _id: false }
 );
 
-// Real sub-schema for GeoJSON Point — keeps `type`/`coordinates` unambiguous
-// so `default` can safely apply to the whole `location` path, not a sub-path.
-const pointSchema = new Schema(
+const medicalConditionsSchema = new Schema<IMedicalConditions>(
   {
-    type: { type: String, enum: ["Point"] },
-    coordinates: { type: [Number] },
+    diabetes: { type: Boolean, default: false },
+    hepatitis: { type: Boolean, default: false },
+    hiv: { type: Boolean, default: false },
+    heartDisease: { type: Boolean, default: false },
+    recentSurgery: { type: Boolean, default: false },
+    recentTattoo: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const medicalRecordSchema = new Schema<IMedicalRecord>(
+  {
+    weightKg: { type: Number, required: true },
+    bloodPressure: { type: String, required: true },
+    hemoglobin: { type: Number, required: true },
+    conditions: { type: medicalConditionsSchema, required: true, default: () => ({}) },
+    currentMedications: { type: String },
+    eligibilityStatus: {
+      type: String,
+      enum: ["ELIGIBLE", "INELIGIBLE", "PENDING_REVIEW"],
+      default: "PENDING_REVIEW",
+    },
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    updatedAt: { type: Date },
   },
   { _id: false }
 );
@@ -53,79 +98,27 @@ const pointSchema = new Schema(
 const donorSchema = new Schema<IDonor>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User" },
-    name: { type: String, required: true, trim: true, minlength: 2, maxlength: 100 },
-    phone: { type: String, required: true, trim: true, index: true },
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, required: true, trim: true },
     email: { type: String, trim: true, lowercase: true },
-    passwordHash: { type: String, select: false },
-    bloodGroup: { type: String, enum: BLOOD_GROUPS, required: true },
-    gender: { type: String, enum: GENDERS, required: true },
+    bloodGroup: {
+      type: String,
+      enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
+      required: true,
+    },
+    gender: { type: String, enum: ["MALE", "FEMALE", "OTHER"], required: true },
     dob: { type: Date, required: true },
     address: { type: addressSchema, required: true },
-    location: {
-      type: pointSchema,
-      default: undefined, // prevents Mongoose auto-materializing this subdocument as {}
-    },
     lastDonationDate: { type: Date, default: null },
     availability: { type: Boolean, default: true },
+    medicalRecord: { type: medicalRecordSchema },
     avatarUrl: { type: String },
   },
   { timestamps: true }
 );
 
-donorSchema.index({ "address.division": 1, "address.district": 1, "address.upazila": 1 });
-donorSchema.index({ bloodGroup: 1 });
 donorSchema.index({ name: "text", phone: "text", email: "text" });
-donorSchema.index({ location: "2dsphere" });
-
-// Self-heals any partially-built location object before it can reach the
-// 2dsphere index and throw.
-donorSchema.pre("validate", function (next) {
-  if (this.location && (!this.location.coordinates || this.location.coordinates.length !== 2)) {
-    this.location = undefined;
-  }
-  next();
-});
-
-donorSchema.pre("save", async function (next) {
-  if (this.isModified("passwordHash") && this.passwordHash && !this.passwordHash.startsWith("$2")) {
-    this.passwordHash = await bcrypt.hash(this.passwordHash, 10);
-  }
-  next();
-});
-
-donorSchema.methods.hasPassword = function (): boolean {
-  return !!this.passwordHash;
-};
-
-donorSchema.methods.comparePassword = function (candidate: string): Promise<boolean> {
-  if (!this.passwordHash) return Promise.resolve(false);
-  return bcrypt.compare(candidate, this.passwordHash);
-};
-
-donorSchema.virtual("medicalRecord", {
-  ref: "MedicalRecord",
-  localField: "_id",
-  foreignField: "donorId",
-  justOne: true,
-});
-
-donorSchema.set("toObject", { virtuals: true });
-donorSchema.set("toJSON", {
-  virtuals: true,
-  transform: (_doc, ret: Record<string, any>) => {
-    delete ret.__v;
-    delete ret.passwordHash;
-
-    if (ret.location?.coordinates?.length === 2) {
-      ret.address = {
-        ...ret.address,
-        coordinates: { lng: ret.location.coordinates[0], lat: ret.location.coordinates[1] },
-      };
-    }
-    delete ret.location;
-
-    return ret;
-  },
-});
+donorSchema.index({ bloodGroup: 1 });
+donorSchema.index({ "address.division": 1, "address.district": 1, "address.upazila": 1 });
 
 export const Donor = model<IDonor>("Donor", donorSchema);

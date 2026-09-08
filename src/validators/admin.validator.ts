@@ -1,16 +1,13 @@
 import { z } from "zod";
-import { ROLES, STATUS } from "../constants/roles";
-import { objectIdSchema } from "../validators/donor.validator";
-
-export const staffIdParamSchema = z.object({ id: objectIdSchema });
 
 export const updateStaffRoleSchema = z.object({
-  role: z.enum([ROLES.ADMIN, ROLES.MEMBER]),
+  body: z.object({
+    role: z.enum(["SUPER_ADMIN", "ADMIN", "MEMBER"]),
+  }),
 });
 
 export const updateStaffStatusSchema = z.object({
-  status: z.enum([STATUS.ACTIVE, STATUS.DISABLED]),
+  body: z.object({
+    status: z.enum(["ACTIVE", "DISABLED"]),
+  }),
 });
-
-export type UpdateStaffRoleInput = z.infer<typeof updateStaffRoleSchema>;
-export type UpdateStaffStatusInput = z.infer<typeof updateStaffStatusSchema>;

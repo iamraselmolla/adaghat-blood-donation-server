@@ -1,76 +1,100 @@
-import { DONATION_INTERVAL_DAYS, ELIGIBILITY, EligibilityStatus, Gender } from "../constants/roles";
-
-export interface MedicalConditions {
-  diabetes: boolean;
-  hepatitis: boolean;
-  hiv: boolean;
-  heartDisease: boolean;
-  recentSurgery: boolean;
-  recentTattoo: boolean;
-}
+import { env } from "../config/env";
+import { EligibilityStatus, Gender, IMedicalConditions } from "../models/Donor.model";
 
 export interface EligibilityInput {
   gender: Gender;
+  dob: Date | string;
   weightKg: number;
   hemoglobin: number;
-  conditions: MedicalConditions;
-  lastDonationDate?: Date | string | null;
+  conditions: IMedicalConditions;
+}
+
+function ageFromDob(dob: Date | string): number {
+  const birth = new Date(dob);
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age;
 }
 
 /**
- * Autocalculates donor eligibility from:
- *  1. Hard medical disqualifiers (HIV / Hepatitis) -> INELIGIBLE
- *  2. Minimum weight (WHO guideline: 45kg) -> INELIGIBLE
- *  3. Hemoglobin thresholds (13.0 g/dL male, 12.5 g/dL female/other) -> INELIGIBLE
- *  4. Temporary deferral flags requiring clinical sign-off
- *     (diabetes, heart disease, recent surgery, recent tattoo) -> PENDING_REVIEW
- *  5. The 120-day minimum donation interval -> INELIGIBLE until due
- *  6. Otherwise -> ELIGIBLE
+ * Classifies a donor's *medical* eligibility from their current medical record.
+ * This is independent of the date-based donation cooldown (see isDateEligible below) -
+ * the two are combined by the frontend's EligibilityBadge and by canDonateNow() here.
  */
-export function computeEligibility(input: EligibilityInput): EligibilityStatus {
-  const { gender, weightKg, hemoglobin, conditions, lastDonationDate } = input;
+export function computeEligibilityStatus(input: EligibilityInput): EligibilityStatus {
+  const { gender, dob, weightKg, hemoglobin, conditions } = input;
+  const age = ageFromDob(dob);
+  const minHemoglobin =
+    gender === "FEMALE" ? env.eligibility.minHemoglobinFemale : env.eligibility.minHemoglobinMale;
 
-  if (conditions.hiv || conditions.hepatitis) {
-    return ELIGIBILITY.INELIGIBLE;
-  }
-
-  if (weightKg > 0 && weightKg < 45) {
-    return ELIGIBILITY.INELIGIBLE;
-  }
-
-  const minHemoglobin = gender === "MALE" ? 13.0 : 12.5;
-  if (hemoglobin > 0 && hemoglobin < minHemoglobin) {
-    return ELIGIBILITY.INELIGIBLE;
-  }
-
-  if (lastDonationDate) {
-    const daysSince = daysBetween(new Date(lastDonationDate), new Date());
-    if (daysSince < DONATION_INTERVAL_DAYS) {
-      return ELIGIBILITY.INELIGIBLE;
-    }
-  }
-
+  // Hard blocks: permanent or serious medical conditions / vitals outside safe range.
   if (
-    conditions.diabetes ||
+    conditions.hiv ||
+    conditions.hepatitis ||
     conditions.heartDisease ||
-    conditions.recentSurgery ||
-    conditions.recentTattoo
+    weightKg < env.eligibility.minWeightKg ||
+    hemoglobin < minHemoglobin ||
+    age < env.eligibility.minDonorAge ||
+    age > env.eligibility.maxDonorAge
   ) {
-    return ELIGIBILITY.PENDING_REVIEW;
+    return "INELIGIBLE";
   }
 
-  return ELIGIBILITY.ELIGIBLE;
+  // Temporary deferrals: safe to donate again after a short recovery window,
+  // flagged for staff review rather than an automatic hard block.
+  if (conditions.recentSurgery || conditions.recentTattoo || conditions.diabetes) {
+    return "PENDING_REVIEW";
+  }
+
+  return "ELIGIBLE";
 }
 
-function daysBetween(a: Date, b: Date): number {
-  const msPerDay = 1000 * 60 * 60 * 24;
-  return Math.floor((b.getTime() - a.getTime()) / msPerDay);
+export function daysSince(date?: Date | string | null): number {
+  if (!date) return Infinity;
+  const diff = Date.now() - new Date(date).getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-/** Next date this donor becomes eligible again purely on the 120-day interval. */
-export function nextEligibleDate(lastDonationDate?: Date | string | null): Date | null {
-  if (!lastDonationDate) return null;
-  const next = new Date(lastDonationDate);
-  next.setDate(next.getDate() + DONATION_INTERVAL_DAYS);
-  return next;
+/** Blood donation cooldown rule: must be at least MIN_DONATION_GAP_DAYS since last donation. */
+export function isDateEligible(lastDonationDate?: Date | string | null): boolean {
+  return daysSince(lastDonationDate) >= env.eligibility.minDonationGapDays;
+}
+
+export function daysUntilEligible(lastDonationDate?: Date | string | null): number {
+  if (!lastDonationDate) return 0;
+  const remaining = env.eligibility.minDonationGapDays - daysSince(lastDonationDate);
+  return Math.max(0, remaining);
+}
+
+export interface DonationEligibilityResult {
+  eligible: boolean;
+  reason?: string;
+  remainingDays?: number;
+}
+
+/**
+ * Full check applied when actually recording a new donation: combines the
+ * date-based cooldown with the donor's current medical eligibility status.
+ */
+export function canDonateNow(donor: {
+  lastDonationDate?: Date | string | null;
+  medicalRecord?: { eligibilityStatus?: EligibilityStatus };
+}): DonationEligibilityResult {
+  if (!isDateEligible(donor.lastDonationDate)) {
+    return {
+      eligible: false,
+      reason: "Donor has not reached the minimum gap since their last donation.",
+      remainingDays: daysUntilEligible(donor.lastDonationDate),
+    };
+  }
+
+  if (donor.medicalRecord?.eligibilityStatus === "INELIGIBLE") {
+    return { eligible: false, reason: "Donor is medically ineligible to donate." };
+  }
+
+  return { eligible: true };
 }

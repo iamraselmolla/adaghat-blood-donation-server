@@ -1,43 +1,47 @@
 import mongoose from "mongoose";
+
 import { env } from "../config/env";
 
-mongoose.set("strictQuery", true);
+// In serverless environments (e.g. Vercel) each invocation can reuse the same
+// Node.js process, so we cache the connection on the global object to avoid
+// exhausting MongoDB's connection limit by reconnecting on every request.
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose> | null;
+}
 
-let isConnected = false;
+declare global {
+  // eslint-disable-next-line no-var
+  var __lifedropMongooseCache: MongooseCache | undefined;
+}
 
-export async function connectDB(): Promise<void> {
-  if (isConnected && mongoose.connection.readyState === 1) {
-    return;
+const cache: MongooseCache = global.__lifedropMongooseCache ?? { conn: null, promise: null };
+global.__lifedropMongooseCache = cache;
+
+export async function connectDB(): Promise<typeof mongoose> {
+  if (cache.conn) {
+    return cache.conn;
+  }
+
+  if (!cache.promise) {
+    mongoose.set("strictQuery", true);
+    cache.promise = mongoose.connect(env.mongoUri).then((m) => m);
   }
 
   try {
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(env.mongodbUri);
-    }
-
-    isConnected = mongoose.connection.readyState === 1;
-
-   console.log("[DB] Connected successfully");
-  console.log("[DB] Database:", mongoose.connection.name);
-  console.log("[DB] Host:", mongoose.connection.host);
+    cache.conn = await cache.promise;
   } catch (err) {
-    isConnected = false;
-
-    console.error(
-      "[db] Failed to connect to MongoDB:",
-      err instanceof Error ? err.message : err
-    );
-
-    // IMPORTANT:
-    // Do NOT use process.exit() inside Vercel serverless functions.
+    cache.promise = null;
     throw err;
   }
+
+  return cache.conn;
 }
 
 export async function disconnectDB(): Promise<void> {
-  if (mongoose.connection.readyState !== 0) {
+  if (cache.conn) {
     await mongoose.disconnect();
+    cache.conn = null;
+    cache.promise = null;
   }
-
-  isConnected = false;
 }

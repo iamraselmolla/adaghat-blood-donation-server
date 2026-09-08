@@ -1,120 +1,116 @@
-import { Request, Response } from "express";
-import jwt from "jsonwebtoken";
-import { User } from "../models/user.model";
+import bcrypt from "bcryptjs";
+
+import { catchAsync } from "../utils/catchAsync";
 import { ApiError } from "../utils/ApiError";
+import { User, Role } from "../models/User.model";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
-import { serializeAuthUser } from "../utils/serializers";
-import { ROLES, STATUS } from "../constants/roles";
-import { LoginInput, RefreshInput, RegisterStaffInput } from "../validators/auth.validator";
+import { toAuthUser } from "../utils/serializers";
 
-/** POST /auth/login — accepts email OR phone as `identifier`. */
-export async function login(req: Request<unknown, unknown, LoginInput>, res: Response) {
-  const { identifier, password } = req.body;
+export const login = catchAsync(async (req, res) => {
+  const { identifier, password } = req.body as { identifier: string; password: string };
 
-  const user = await User.findOne({ identifier: identifier.trim().toLowerCase() }).select("+passwordHash");
-  if (!user) {
-    throw ApiError.unauthorized("Invalid credentials");
-  }
+  const user = await User.findOne({ identifier: identifier.toLowerCase() }).select("+passwordHash");
+  if (!user) throw ApiError.unauthorized("Invalid credentials");
 
-  if (user.status === STATUS.DISABLED) {
-    throw ApiError.forbidden("This account has been disabled. Contact a Super Admin.");
-  }
+  if (user.status !== "ACTIVE") throw ApiError.forbidden("This account has been disabled");
 
   const isMatch = await user.comparePassword(password);
-  if (!isMatch) {
-    throw ApiError.unauthorized("Invalid credentials");
-  }
+  if (!isMatch) throw ApiError.unauthorized("Invalid credentials");
 
   user.lastLoginAt = new Date();
   await user.save();
 
-  const accessToken = signAccessToken(user.id, user.role);
-  const refreshToken = signRefreshToken(user.id, user.tokenVersion);
+  const accessToken = signAccessToken({ sub: user._id.toString(), role: user.role, tokenVersion: user.tokenVersion });
+  const refreshToken = signRefreshToken({ sub: user._id.toString(), tokenVersion: user.tokenVersion });
 
   res.status(200).json({
     accessToken,
     refreshToken,
-    user: serializeAuthUser(user),
+    user: toAuthUser(user),
   });
-}
+});
 
 /**
- * POST /auth/register-staff
- *
- * Dual purpose, mirroring the frontend:
- *  - Unauthenticated request (public sign-up form) -> always creates a MEMBER
- *    (read-only viewer) account, regardless of what `role` was sent.
- *  - Authenticated SUPER_ADMIN -> may create ADMIN or MEMBER staff accounts.
- * Any other caller (authenticated but not SUPER_ADMIN) is forbidden.
+ * Dual-purpose endpoint:
+ *  - Called with no/invalid auth token -> public self-registration. Role is
+ *    forced to MEMBER regardless of what the body requests.
+ *  - Called by an authenticated SUPER_ADMIN -> staff creation. Whatever role
+ *    is supplied in the body (ADMIN or MEMBER) is honored.
+ *  - Called by an authenticated ADMIN/MEMBER -> forbidden; only SUPER_ADMIN
+ *    can create staff accounts once authenticated.
  */
-export async function registerStaff(req: Request<unknown, unknown, RegisterStaffInput>, res: Response) {
-  const { name, identifier, password } = req.body;
-  let { role } = req.body;
+export const registerStaff = catchAsync(async (req, res) => {
+  const { name, identifier, password } = req.body as {
+    name: string;
+    identifier: string;
+    password: string;
+    role?: Role;
+  };
+  let role: Role = "MEMBER";
 
   if (req.user) {
-    if (req?.user.role !== ROLES.SUPER_ADMIN) {
-      throw ApiError.forbidden("Only a Super Admin can create staff accounts");
+    if (req.user.role !== "SUPER_ADMIN") {
+      throw ApiError.forbidden("Only a super admin can register staff accounts");
     }
-    if (role === ROLES.SUPER_ADMIN) {
-      throw ApiError.badRequest("Cannot create another Super Admin account");
+    const requestedRole = req.body.role as Role | undefined;
+    if (requestedRole && requestedRole !== "SUPER_ADMIN") {
+      role = requestedRole;
+    } else if (requestedRole === "SUPER_ADMIN") {
+      throw ApiError.forbidden("Cannot create another super admin through this endpoint");
     }
-  } else {
-    // Public self sign-up can only ever create a read-only Member account.
-    role = ROLES.MEMBER;
   }
 
-  const existing = await User.findByIdentifier(identifier);
-  if (existing) {
-    throw ApiError.conflict("An account with this email or phone already exists");
-  }
+  const existing = await User.findOne({ identifier: identifier.toLowerCase() });
+  if (existing) throw ApiError.conflict("An account with this email/phone already exists");
 
+  const passwordHash = await bcrypt.hash(password, 10);
   const user = await User.create({
     name,
-    identifier: identifier.trim().toLowerCase(),
-    passwordHash: password, // hashed by pre-save hook
+    identifier: identifier.toLowerCase(),
+    passwordHash,
     role,
-    status: STATUS.ACTIVE,
+    status: "ACTIVE",
   });
 
-  res.status(201).json(serializeAuthUser(user));
-}
+  res.status(201).json(toAuthUser(user));
+});
 
-/** GET /auth/me — returns the currently authenticated user. */
-export async function me(req: Request, res: Response) {
+export const me = catchAsync(async (req, res) => {
   const user = await User.findById(req.user!.id);
   if (!user) throw ApiError.unauthorized("Account no longer exists");
-  res.status(200).json(serializeAuthUser(user));
-}
+  res.status(200).json(toAuthUser(user));
+});
 
-/** POST /auth/refresh — exchanges a valid refresh token for a new access token. */
-export async function refresh(req: Request<unknown, unknown, RefreshInput>, res: Response) {
-  const { refreshToken } = req.body;
+export const logout = catchAsync(async (req, res) => {
+  // Bump tokenVersion so every previously issued access/refresh token for
+  // this user is invalidated immediately.
+  await User.findByIdAndUpdate(req.user!.id, { $inc: { tokenVersion: 1 } });
+  res.status(200).json({ message: "Logged out" });
+});
+
+/**
+ * IMPORTANT: only ever returns { accessToken }. The frontend axios interceptor
+ * (lib/axios.ts) reads `data.accessToken` exclusively - returning a rotated
+ * refreshToken here would silently break refresh on the client.
+ */
+export const refresh = catchAsync(async (req, res) => {
+  const { refreshToken } = req.body as { refreshToken: string };
 
   let payload;
   try {
     payload = verifyRefreshToken(refreshToken);
-  } catch (err) {
-    if (err instanceof jwt.TokenExpiredError) {
-      throw ApiError.unauthorized("Session expired, please sign in again");
-    }
-    throw ApiError.unauthorized("Invalid refresh token");
+  } catch {
+    throw ApiError.unauthorized("Invalid or expired refresh token");
   }
 
   const user = await User.findById(payload.sub);
   if (!user) throw ApiError.unauthorized("Account no longer exists");
-  if (user.status === STATUS.DISABLED) throw ApiError.forbidden("This account has been disabled");
+  if (user.status !== "ACTIVE") throw ApiError.forbidden("This account has been disabled");
   if (user.tokenVersion !== payload.tokenVersion) {
-    throw ApiError.unauthorized("Session has been revoked, please sign in again");
+    throw ApiError.unauthorized("Session has been invalidated, please log in again");
   }
 
-  const accessToken = signAccessToken(user.id, user.role);
+  const accessToken = signAccessToken({ sub: user._id.toString(), role: user.role, tokenVersion: user.tokenVersion });
+
   res.status(200).json({ accessToken });
-}
-
-/** POST /auth/logout — invalidates all outstanding refresh tokens for this user. */
-export async function logout(req: Request, res: Response) {
-  if (req.user) {
-    await User.findByIdAndUpdate(req.user.id, { $inc: { tokenVersion: 1 } });
-  }
-  res.status(200).json({ message: "Logged out" });
-}
+});

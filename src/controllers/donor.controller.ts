@@ -1,186 +1,177 @@
-import { Request, Response } from "express";
-import mongoose from "mongoose";
-import { Donor } from "../models/donor.model";
-import { MedicalRecord } from "../models/medicalRecord.model";
-import { ApiError } from "../utils/ApiError";
-import { serializeDonor, serializeMedicalRecord } from "../utils/serializers";
-import { parsePagination, buildPaginatedResponse } from "../utils/pagination";
-import { computeEligibility } from "../utils/eligibility";
-import {
-  CreateDonorInput,
-  ListDonorsQuery,
-  MedicalRecordInput,
-  UpdateDonorInput,
-} from "../validators/donor.validator";
+import { Types, PipelineStage } from "mongoose";
+import bcrypt from "bcryptjs";
 
-/** GET /donors — paginated, filterable by blood group, location, availability, and eligibility. */
-export async function listDonors(req: Request<unknown, unknown, unknown, ListDonorsQuery>, res: Response) {
-  const filters = req.query;
-  const { page, limit, skip } = parsePagination(filters as unknown as Record<string, unknown>);
+import { catchAsync } from "../utils/catchAsync";
+import { ApiError } from "../utils/ApiError";
+import { Donor } from "../models/Donor.model";
+import { User } from "../models/User.model";
+import { parsePagination, buildPaginatedResponse } from "../utils/pagination";
+import { computeEligibilityStatus } from "../utils/eligibility";
+import { env } from "../config/env";
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export const listDonors = catchAsync(async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query as Record<string, unknown>);
+  const { search, bloodGroup, division, district, upazila, availability, eligibility } = req.query as Record<
+    string,
+    string | undefined
+  >;
 
   const match: Record<string, unknown> = {};
 
-  if (filters.search) {
-    const term = escapeRegex(filters.search.trim());
-    const re = new RegExp(term, "i");
+  if (search) {
+    const re = new RegExp(escapeRegex(search), "i");
     match.$or = [{ name: re }, { phone: re }, { email: re }];
   }
-  if (filters.bloodGroup && filters.bloodGroup !== "ALL") {
-    match.bloodGroup = filters.bloodGroup;
-  }
-  if (filters.division) match["address.division"] = filters.division;
-  if (filters.district) match["address.district"] = filters.district;
-  if (filters.upazila) match["address.upazila"] = filters.upazila;
-  if (filters.availability === "AVAILABLE") match.availability = true;
-  if (filters.availability === "UNAVAILABLE") match.availability = false;
+  if (bloodGroup && bloodGroup !== "ALL") match.bloodGroup = bloodGroup;
+  if (division) match["address.division"] = division;
+  if (district) match["address.district"] = district;
+  if (upazila) match["address.upazila"] = upazila;
+  if (availability === "AVAILABLE") match.availability = true;
+  if (availability === "UNAVAILABLE") match.availability = false;
 
-  const pipeline: mongoose.PipelineStage[] = [
-    { $match: match },
-    {
-      $lookup: {
-        from: MedicalRecord.collection.name,
-        localField: "_id",
-        foreignField: "donorId",
-        as: "medicalRecord",
+  const pipeline: PipelineStage[] = [{ $match: match }];
+
+  // Computed, point-in-time eligibility: combines the medical eligibilityStatus
+  // with the date-based donation cooldown, since neither alone is stored as a
+  // single persisted field (the cooldown is relative to "now").
+  pipeline.push({
+    $addFields: {
+      __dateEligible: {
+        $or: [
+          { $not: ["$lastDonationDate"] },
+          {
+            $gte: [
+              { $divide: [{ $subtract: ["$$NOW", "$lastDonationDate"] }, 1000 * 60 * 60 * 24] },
+              env.eligibility.minDonationGapDays,
+            ],
+          },
+        ],
       },
     },
-    { $unwind: { path: "$medicalRecord", preserveNullAndEmptyArrays: true } },
-  ];
+  });
+  pipeline.push({
+    $addFields: {
+      __eligibleNow: {
+        $and: [{ $eq: ["$medicalRecord.eligibilityStatus", "ELIGIBLE"] }, "$__dateEligible"],
+      },
+    },
+  });
 
-  if (filters.eligibility && filters.eligibility !== "ALL") {
-    pipeline.push({ $match: { "medicalRecord.eligibilityStatus": filters.eligibility } });
-  }
+  if (eligibility === "ELIGIBLE") pipeline.push({ $match: { __eligibleNow: true } });
+  if (eligibility === "INELIGIBLE") pipeline.push({ $match: { __eligibleNow: false } });
+
+  pipeline.push({ $project: { __dateEligible: 0, __eligibleNow: 0 } });
+  pipeline.push({ $sort: { createdAt: -1 } });
 
   pipeline.push({
     $facet: {
-      data: [{ $sort: { createdAt: -1 } }, { $skip: skip }, { $limit: limit }],
+      data: [{ $skip: skip }, { $limit: limit }],
       totalCount: [{ $count: "count" }],
     },
   });
 
   const [result] = await Donor.aggregate(pipeline);
-  const rows: Record<string, any>[] = result?.data ?? [];
-  const total: number = result?.totalCount?.[0]?.count ?? 0;
+  const data = result?.data ?? [];
+  const total = result?.totalCount?.[0]?.count ?? 0;
 
-  const data = rows.map((row) => serializeDonor(row));
   res.status(200).json(buildPaginatedResponse(data, total, page, limit));
-}
+});
 
-/** GET /donors/:id */
-export async function getDonor(req: Request<{ id: string }>, res: Response) {
-  const donor = await Donor.findById(req.params.id).populate("medicalRecord");
+export const getDonorById = catchAsync(async (req, res) => {
+  const donor = await Donor.findById(req.params.id);
   if (!donor) throw ApiError.notFound("Donor not found");
-  res.status(200).json(serializeDonor(donor.toObject()));
-}
+  res.status(200).json(donor);
+});
 
-/** POST /donors — Admin/Super Admin creates a new donor profile. */
-export async function createDonor(req: Request<unknown, unknown, CreateDonorInput>, res: Response) {
-  const body = req.body;
+export const createDonor = catchAsync(async (req, res) => {
+  const { password, ...rest } = req.body as Record<string, unknown> & { password?: string };
+
+  let userId: Types.ObjectId | undefined;
+  if (password && rest.email) {
+    const identifier = String(rest.email).toLowerCase();
+    const existingUser = await User.findOne({ identifier });
+    if (!existingUser) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      const donorAccount = await User.create({
+        name: rest.name,
+        identifier,
+        passwordHash,
+        role: "MEMBER",
+        status: "ACTIVE",
+      });
+      userId = donorAccount._id;
+    } else {
+      userId = existingUser._id;
+    }
+  }
 
   const donor = await Donor.create({
-    name: body.name,
-    phone: body.phone,
-    email: body.email,
-    passwordHash: body.password || undefined,
-    bloodGroup: body.bloodGroup,
-    gender: body.gender,
-    dob: new Date(body.dob),
-    address: {
-      division: body.address.division,
-      district: body.address.district,
-      upazila: body.address.upazila,
-      addressLine: body.address.addressLine || undefined,
-    },
-    lastDonationDate: body.lastDonationDate ? new Date(body.lastDonationDate) : null,
-    availability: body.availability ?? true,
+    ...rest,
+    email: rest.email || undefined,
+    lastDonationDate: rest.lastDonationDate || null,
+    userId,
   });
 
-  res.status(201).json(serializeDonor(donor.toObject()));
-}
+  res.status(201).json(donor);
+});
 
-/** PUT /donors/:id — Admin/Super Admin updates a donor profile. */
-export async function updateDonor(req: Request<{ id: string }, unknown, UpdateDonorInput>, res: Response) {
+export const updateDonor = catchAsync(async (req, res) => {
+  const updates = { ...(req.body as Record<string, unknown>) };
+  delete updates.password;
+  if ("email" in updates && !updates.email) updates.email = undefined;
+  if ("lastDonationDate" in updates && !updates.lastDonationDate) updates.lastDonationDate = null;
+
+  const donor = await Donor.findByIdAndUpdate(req.params.id, updates, {
+    new: true,
+    runValidators: true,
+  });
+  if (!donor) throw ApiError.notFound("Donor not found");
+
+  res.status(200).json(donor);
+});
+
+export const deleteDonor = catchAsync(async (req, res) => {
+  const donor = await Donor.findByIdAndDelete(req.params.id);
+  if (!donor) throw ApiError.notFound("Donor not found");
+  res.status(204).send();
+});
+
+export const updateMedicalRecord = catchAsync(async (req, res) => {
+  const { weightKg, bloodPressure, hemoglobin, conditions, currentMedications } = req.body as {
+    weightKg: number;
+    bloodPressure: string;
+    hemoglobin: number;
+    conditions: Record<string, boolean>;
+    currentMedications?: string;
+  };
+
   const donor = await Donor.findById(req.params.id);
   if (!donor) throw ApiError.notFound("Donor not found");
 
-  const body = req.body;
+  const eligibilityStatus = computeEligibilityStatus({
+    gender: donor.gender,
+    dob: donor.dob,
+    weightKg,
+    hemoglobin,
+    conditions: conditions as never,
+  });
 
-  if (body.name !== undefined) donor.name = body.name;
-  if (body.phone !== undefined) donor.phone = body.phone;
-  if (body.email !== undefined) donor.email = body.email;
-  if (body.password) donor.passwordHash = body.password; // pre-save hook re-hashes
-  if (body.bloodGroup !== undefined) donor.bloodGroup = body.bloodGroup;
-  if (body.gender !== undefined) donor.gender = body.gender;
-  if (body.dob !== undefined) donor.dob = new Date(body.dob);
-  if (body.availability !== undefined) donor.availability = body.availability;
-  if (body.address) {
-    donor.address = {
-      division: body.address.division ?? donor.address.division,
-      district: body.address.district ?? donor.address.district,
-      upazila: body.address.upazila ?? donor.address.upazila,
-      addressLine: body.address.addressLine ?? donor.address.addressLine,
-    };
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "lastDonationDate")) {
-    donor.lastDonationDate = body.lastDonationDate ? new Date(body.lastDonationDate) : null;
-  }
+  donor.medicalRecord = {
+    weightKg,
+    bloodPressure,
+    hemoglobin,
+    conditions: conditions as never,
+    currentMedications,
+    eligibilityStatus,
+    updatedBy: new Types.ObjectId(req.user!.id),
+    updatedAt: new Date(),
+  };
 
   await donor.save();
-  await donor.populate("medicalRecord");
 
-  res.status(200).json(serializeDonor(donor.toObject()));
-}
-
-/** DELETE /donors/:id — Super Admin only. */
-export async function deleteDonor(req: Request<{ id: string }>, res: Response) {
-  const donor = await Donor.findById(req.params.id);
-  if (!donor) throw ApiError.notFound("Donor not found");
-
-  await Promise.all([
-    Donor.deleteOne({ _id: donor._id }),
-    MedicalRecord.deleteOne({ donorId: donor._id }),
-  ]);
-
-  res.status(204).end();
-}
-
-/** PUT /donors/:id/medical-record — creates or updates the donor's medical record and recalculates eligibility. */
-export async function upsertMedicalRecord(
-  req: Request<{ id: string }, unknown, MedicalRecordInput>,
-  res: Response
-) {
-  const donor = await Donor.findById(req.params.id);
-  if (!donor) throw ApiError.notFound("Donor not found");
-
-  const body = req.body;
-
-  const eligibilityStatus = computeEligibility({
-    gender: donor.gender,
-    weightKg: body.weightKg,
-    hemoglobin: body.hemoglobin,
-    conditions: body.conditions,
-    lastDonationDate: donor.lastDonationDate,
-  });
-
-  const record = await MedicalRecord.findOneAndUpdate(
-    { donorId: donor._id },
-    {
-      $set: {
-        weightKg: body.weightKg,
-        bloodPressure: body.bloodPressure,
-        hemoglobin: body.hemoglobin,
-        conditions: body.conditions,
-        currentMedications: body.currentMedications || undefined,
-        eligibilityStatus,
-        updatedBy: req.user!.id,
-      },
-    },
-    { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
-  );
-
-  res.status(200).json(serializeMedicalRecord(record));
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+  res.status(200).json(donor.medicalRecord);
+});
