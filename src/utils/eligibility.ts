@@ -1,5 +1,5 @@
 import { env } from "../config/env";
-import { EligibilityStatus, Gender, IMedicalConditions } from "../models/Donor.model";
+import { EligibilityStatus, Gender, IMedicalConditions } from "../models/donor.model";
 
 export interface EligibilityInput {
   gender: Gender;

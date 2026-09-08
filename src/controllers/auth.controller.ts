@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 
 import { catchAsync } from "../utils/catchAsync";
 import { ApiError } from "../utils/ApiError";
-import { User, Role } from "../models/User.model";
+import { User, Role } from "../models/user.model";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
 import { toAuthUser } from "../utils/serializers";
 

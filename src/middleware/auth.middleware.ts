@@ -4,8 +4,8 @@ import jwt from "jsonwebtoken";
 import { verifyAccessToken } from "../utils/jwt";
 import { ApiError } from "../utils/ApiError";
 import { catchAsync } from "../utils/catchAsync";
-import { User } from "../models/User.model";
-import { Role } from "../models/User.model";
+import { User } from "../models/user.model";
+import { Role } from "../models/user.model";
 
 function extractToken(req: Request): string | null {
   const header = req.headers.authorization;

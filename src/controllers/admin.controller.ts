@@ -1,7 +1,7 @@
 import { catchAsync } from "../utils/catchAsync";
 import { ApiError } from "../utils/ApiError";
-import { Donor } from "../models/Donor.model";
-import { User } from "../models/User.model";
+import { Donor } from "../models/donor.model";
+import { User } from "../models/user.model";
 import { toStaffMember } from "../utils/serializers";
 import { env } from "../config/env";
 

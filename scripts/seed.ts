@@ -2,8 +2,8 @@ import bcrypt from "bcryptjs";
 
 import { connectDB, disconnectDB } from "../src/config/db";
 import { env } from "../src/config/env";
-import { User } from "../src/models/User.model";
-import { Donor } from "../src/models/Donor.model";
+import { User } from "../src/models/user.model";
+import { Donor } from "../src/models/donor.model";
 import { Donation } from "../src/models/Donation.model";
 import { computeEligibilityStatus } from "../src/utils/eligibility";
 

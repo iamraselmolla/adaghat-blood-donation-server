@@ -1,6 +1,6 @@
 import { catchAsync } from "../utils/catchAsync";
 import { ApiError } from "../utils/ApiError";
-import { Donor } from "../models/Donor.model";
+import { Donor } from "../models/donor.model";
 import { Donation } from "../models/Donation.model";
 import { parsePagination, buildPaginatedResponse } from "../utils/pagination";
 import { canDonateNow } from "../utils/eligibility";

@@ -1,4 +1,4 @@
-import { IUser } from "../models/User.model";
+import { IUser } from "../models/user.model";
 
 export interface AuthUserDTO {
   id: string;

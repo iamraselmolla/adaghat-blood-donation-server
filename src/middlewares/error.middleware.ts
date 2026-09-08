@@ -13,7 +13,7 @@ interface ErrorBody {
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   const body = normalizeError(err);
 
-  if (!env.isProd && body.statusCode >= 500) {
+  if (!env?.isProd && body.statusCode >= 500) {
     // eslint-disable-next-line no-console
     console.error(`[error] ${req.method} ${req.originalUrl}:`, err);
   }
